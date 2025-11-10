@@ -1,10 +1,10 @@
-# ASIMOV Template Module
+# ASIMOV Image Module
 
 [![License](https://img.shields.io/badge/license-Public%20Domain-blue.svg)](https://unlicense.org)
-[![Package on Crates.io](https://img.shields.io/crates/v/asimov-template-module)](https://crates.io/crates/asimov-template-module)
-[![Documentation](https://docs.rs/asimov-template-module/badge.svg)](https://docs.rs/asimov-template-module)
+[![Package on Crates.io](https://img.shields.io/crates/v/asimov-image-module)](https://crates.io/crates/asimov-image-module)
+[![Documentation](https://docs.rs/asimov-image-module/badge.svg)](https://docs.rs/asimov-image-module)
 
-[ASIMOV] module template. Fork this to create your own module!
+[ASIMOV] module for image processing — provides tools to read, write, and view images with [JSON-LD] output for seamless knowledge integration.
 
 ## ✨ Features
 
@@ -19,19 +19,30 @@
 ### Installation with the [ASIMOV CLI]
 
 ```bash
-asimov module install template -v
+asimov module install image -v
 ```
 
 ### Installation from Source Code
 
 ```bash
-cargo install asimov-template-module
+cargo install asimov-image-module
 ```
 
 ## 👉 Examples
 
+Read a file and output a JSON-LD object:
 ```bash
-asimov-template-emitter
+asimov-image-reader ./photo.jpg
+```
+
+Resize the image before emitting:
+```bash
+asimov-image-reader ./photo.jpg --size 800x600
+```
+
+Read from stdin:
+```bash
+cat photo.jpg | asimov-image-reader
 ```
 
 ## ⚙ Configuration
@@ -42,19 +53,17 @@ This module requires no configuration.
 
 ### Installed Binaries
 
-- `asimov-template-emitter`
+- `asimov-image-reader` — reads and emits image metadata as JSON-LD
 
-### `asimov-template-emitter`
+### `asimov-image-reader`
 
 ```
-asimov-template-emitter
-
-Usage: asimov-template-emitter [OPTIONS]
+Usage: asimov-image-reader [OPTIONS] [URL]
 
 Options:
-  -d, --debug       Enable debugging output
+  -s, --size <WxH>  Resize to specific width and height (e.g., 1920x1080)
       --license     Show license information
-  -v, --verbose...  Enable verbose output (may be repeated for more verbosity)
+  -v, --verbose     Enable verbose output
   -V, --version     Print version information
   -h, --help        Print help
 ```
@@ -62,20 +71,18 @@ Options:
 ## 👨‍💻 Development
 
 ```bash
-git clone https://github.com/asimov-modules/asimov-template-module.git
+git clone https://github.com/asimov-modules/asimov-image-module.git
 ```
 
 ---
 
-[![Share on X](https://img.shields.io/badge/share%20on-x-03A9F4?logo=x)](https://x.com/intent/post?url=https://github.com/asimov-modules/asimov-template-module&text=asimov-template-module)
-[![Share on Reddit](https://img.shields.io/badge/share%20on-reddit-red?logo=reddit)](https://reddit.com/submit?url=https://github.com/asimov-modules/asimov-template-module&title=asimov-template-module)
-[![Share on Hacker News](https://img.shields.io/badge/share%20on-hn-orange?logo=ycombinator)](https://news.ycombinator.com/submitlink?u=https://github.com/asimov-modules/asimov-template-module&t=asimov-template-module)
-[![Share on Facebook](https://img.shields.io/badge/share%20on-fb-1976D2?logo=facebook)](https://www.facebook.com/sharer/sharer.php?u=https://github.com/asimov-modules/asimov-template-module)
-[![Share on LinkedIn](https://img.shields.io/badge/share%20on-linkedin-3949AB?logo=linkedin)](https://www.linkedin.com/sharing/share-offsite/?url=https://github.com/asimov-modules/asimov-template-module)
+[![Share on X](https://img.shields.io/badge/share%20on-x-03A9F4?logo=x)](https://x.com/intent/post?url=https://github.com/asimov-modules/asimov-image-module&text=asimov-image-module)
+[![Share on Reddit](https://img.shields.io/badge/share%20on-reddit-red?logo=reddit)](https://reddit.com/submit?url=https://github.com/asimov-modules/asimov-image-module&title=asimov-image-module)
+[![Share on Hacker News](https://img.shields.io/badge/share%20on-hn-orange?logo=ycombinator)](https://news.ycombinator.com/submitlink?u=https://github.com/asimov-modules/asimov-image-module&t=asimov-image-module)
+[![Share on Facebook](https://img.shields.io/badge/share%20on-fb-1976D2?logo=facebook)](https://www.facebook.com/sharer/sharer.php?u=https://github.com/asimov-modules/asimov-image-module)
+[![Share on LinkedIn](https://img.shields.io/badge/share%20on-linkedin-3949AB?logo=linkedin)](https://www.linkedin.com/sharing/share-offsite/?url=https://github.com/asimov-modules/asimov-image-module)
 
 [ASIMOV]: https://asimov.sh
 [ASIMOV CLI]: https://cli.asimov.sh
 [JSON-LD]: https://json-ld.org
-[KNOW]: https://know.dev
-[RDF]: https://www.w3.org/TR/rdf12-primer/
 [Rust]: https://rust-lang.org
