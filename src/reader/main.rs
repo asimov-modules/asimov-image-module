@@ -1,11 +1,11 @@
-use std::error::Error;
+use asimov_module::SysexitsError::{self, *};
 use clap::Parser;
+use clientele::StandardOptions;
 use image::GenericImageView;
 use know::traits::ToJsonLd;
+use std::error::Error;
 use std::io::Read;
 use std::path::PathBuf;
-use asimov_module::SysexitsError::{self, *};
-use clientele::StandardOptions;
 
 #[derive(Debug, Parser)]
 struct Options {
@@ -122,10 +122,14 @@ fn parse_dimensions(s: &str) -> Result<(u32, u32), String> {
         .map_err(|_| format!("Invalid height: {}", parts[1]))?;
 
     if !(160..=7680).contains(&width) {
-        return Err(format!("Width {width} is out of reasonable range (160-7680)"));
+        return Err(format!(
+            "Width {width} is out of reasonable range (160-7680)"
+        ));
     }
     if !(120..=4320).contains(&height) {
-        return Err(format!("Height {height} is out of reasonable range (120-4320)"));
+        return Err(format!(
+            "Height {height} is out of reasonable range (120-4320)"
+        ));
     }
 
     Ok((width, height))
