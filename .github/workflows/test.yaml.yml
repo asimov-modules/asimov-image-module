@@ -1,0 +1,71 @@
+name: asimov-image-module-ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # Linux ONLY: install X11 libs for minifb to compile
+      - name: Install Linux GUI deps
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libgl1-mesa-dev \
+            xvfb
+
+      - name: Build release binaries
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Create a test PNG
+        shell: bash
+        run: |
+          cat > test.png <<EOF
+          # PNG GENERATED AT RUNTIME USING base64
+          EOF
+
+          # 1x1 red pixel PNG (from base64)
+          echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQImWNgYGD4DwABBAEAeKwxAAAAAElFTkSuQmCC" | base64 --decode > test.png
+
+      # Run the pipeline and test that it doesn't crash.
+      # Linux requires a virtual framebuffer, macOS & Windows skip the window.
+      - name: Run integration test
+        shell: bash
+        env:
+          CI_HEADLESS: "1"
+        run: |
+          READER=./target/${{ matrix.target }}/release/asimov-image-reader
+          VIEWER=./target/${{ matrix.target }}/release/asimov-image-viewer
+
+          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+            echo "Running viewer inside xvfb..."
+            xvfb-run -a $READER file:test.png | xvfb-run -a $VIEWER
+          else
+            echo "Running headless mode (no window)..."
+            $READER file:test.png | $VIEWER
+          fi
+
+      - name: Success
+        run: echo "🎉 All good!"
