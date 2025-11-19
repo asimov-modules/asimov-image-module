@@ -39,32 +39,39 @@ jobs:
       - name: Build release binaries
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Create a test PNG
+      - name: Create a 1x1 test PNG
         shell: bash
         run: |
-          cat > test.png <<EOF
-          # PNG GENERATED AT RUNTIME USING base64
-          EOF
+          # 1x1 red pixel PNG (base64)
+          echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQImWNgYGD4DwABBAEAeKwxAAAAAElFTkSuQmCC" \
+            | base64 --decode > test.png
 
-          # 1x1 red pixel PNG (from base64)
-          echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQImWNgYGD4DwABBAEAeKwxAAAAAElFTkSuQmCC" | base64 --decode > test.png
+      - name: Run reader and capture JSON
+        shell: bash
+        run: |
+          READER=./target/${{ matrix.target }}/release/asimov-image-reader
+          echo "Running reader..."
+          set -e
+          "$READER" file:test.png > image.json
+          echo "Reader exit code: $?"
+          echo "Reader output (truncated):"
+          head -c 500 image.json || true
+          echo
+          test -s image.json || (echo "image.json is empty!" && exit 1)
 
-      # Run the pipeline and test that it doesn't crash.
-      # Linux requires a virtual framebuffer, macOS & Windows skip the window.
-      - name: Run integration test
+      - name: Run viewer on captured JSON
         shell: bash
         env:
           CI_HEADLESS: "1"
         run: |
-          READER=./target/${{ matrix.target }}/release/asimov-image-reader
           VIEWER=./target/${{ matrix.target }}/release/asimov-image-viewer
 
           if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
             echo "Running viewer inside xvfb..."
-            xvfb-run -a $READER file:test.png | xvfb-run -a $VIEWER
+            xvfb-run -a "$VIEWER" < image.json
           else
-            echo "Running headless mode (no window)..."
-            $READER file:test.png | $VIEWER
+            echo "Running viewer headless (no real window)..."
+            "$VIEWER" < image.json
           fi
 
       - name: Success
