@@ -33,12 +33,15 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          JSON='{"id":"test","source":"test","width":2,"height":2,"data":[255,0,0,  0,255,0,  0,0,255,  255,255,255]}'
-          printf '%s\n' "$JSON" | cargo run --quiet --features cli --bin asimov-image-viewer -- --headless
+          BIN="target/debug/asimov-image-viewer"
+          # already built above; no rebuild/race
+          JSON='{"id":"test","source":"test","width":2,"height":2,"data":[255,0,0, 0,255,0, 0,0,255, 255,255,255]}'
+          printf '%s\n' "$JSON" | "$BIN" --headless
 
       - name: Headless smoke test (Windows PowerShell)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $json = '{"id":"test","source":"test","width":2,"height":2,"data":[255,0,0,  0,255,0,  0,0,255,  255,255,255]}'
-          $json | cargo run --quiet --features cli --bin asimov-image-viewer -- --headless
+          $bin = "target\debug\asimov-image-viewer.exe"
+          $json = '{"id":"test","source":"test","width":2,"height":2,"data":[255,0,0, 0,255,0, 0,0,255, 255,255,255]}'
+          $json | & $bin --headless
