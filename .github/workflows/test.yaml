@@ -1,0 +1,44 @@
+# .github/workflows/ci.yml
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: build-test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build
+        run: cargo build --locked --features cli --bins --all-targets
+
+      - name: Headless smoke test (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          JSON='{"id":"test","source":"test","width":2,"height":2,"data":[255,0,0,  0,255,0,  0,0,255,  255,255,255]}'
+          printf '%s\n' "$JSON" | cargo run --quiet --features cli --bin asimov-image-viewer -- --headless
+
+      - name: Headless smoke test (Windows PowerShell)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $json = '{"id":"test","source":"test","width":2,"height":2,"data":[255,0,0,  0,255,0,  0,0,255,  255,255,255]}'
+          $json | cargo run --quiet --features cli --bin asimov-image-viewer -- --headless

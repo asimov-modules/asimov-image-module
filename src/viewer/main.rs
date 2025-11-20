@@ -1,4 +1,3 @@
-// src/viewer/main.rs
 // This is free and unencumbered software released into the public domain.
 
 #[cfg(not(feature = "std"))]
@@ -8,24 +7,24 @@ use asimov_module::SysexitsError::{self, *};
 use clap::Parser;
 use clientele::StandardOptions;
 use know::classes::Image as KnowImage;
-use minifb::{Key, Window, WindowOptions};
-use serde_json::de::Deserializer;
 use std::error::Error;
-use std::io::{self, Read, Write};
+use std::io::{self, BufRead, Write};
+use std::sync::mpsc::{self, Receiver};
+use std::thread;
+use std::time::Duration;
 
-/// asimov-image-viewer
-///
-/// Reads JSON(-LD) encoded `know::classes::Image` objects from stdin,
-/// optionally passes the input through to stdout (`--union`), and
-/// displays the images in a window. Press ESC or close the window to exit.
 #[derive(Debug, Parser)]
 struct Options {
     #[clap(flatten)]
     flags: StandardOptions,
 
     /// Copy stdin to stdout (pass-through / tee)
-    #[clap(short = 'U', long = "union")]
+    #[arg(short = 'U', long = "union")]
     union: bool,
+
+    /// TEMP for CI only: run with no window; parse & validate frames and exit
+    #[arg(long = "headless")]
+    headless: bool,
 }
 
 pub fn main() -> Result<SysexitsError, Box<dyn Error>> {
@@ -52,151 +51,173 @@ pub fn main() -> Result<SysexitsError, Box<dyn Error>> {
 
     // Configure logging & tracing:
     #[cfg(feature = "tracing")]
-    asimov_module::init_tracing_subscriber(&options.flags)
-        .expect("failed to initialize logging");
+    asimov_module::init_tracing_subscriber(&options.flags).expect("failed to initialize logging");
 
-    // Read all of stdin into a buffer (works with pretty-printed JSON).
-    let mut stdin_buf = Vec::<u8>::new();
-    io::stdin().read_to_end(&mut stdin_buf)?;
+    let (tx, rx) = mpsc::channel::<KnowImage>();
 
-    // Optional pass-through (union) – write the same bytes to stdout.
-    if options.union {
+    let union = options.union;
+    let debug = options.flags.debug;
+    let verbose = options.flags.verbose != 0;
+
+    // stdin reader -> channel
+    thread::spawn(move || {
+        let stdin = io::stdin();
         let mut stdout = io::stdout();
-        stdout.write_all(&stdin_buf)?;
-        stdout.flush()?;
-    }
+        let mut stderr = io::stderr();
 
-    // If there's no input at all, just exit quietly.
-    if stdin_buf.is_empty() {
+        for line_res in stdin.lock().lines() {
+            match line_res {
+                Ok(line) => {
+                    if union {
+                        let _ = writeln!(stdout, "{line}");
+                        let _ = stdout.flush();
+                    }
+                    match serde_json::from_str::<KnowImage>(&line) {
+                        Ok(img) => {
+                            if tx.send(img).is_err() {
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            if debug || verbose {
+                                let _ = writeln!(stderr, "WARN: failed to parse Image JSON-LD: {e}");
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    if debug || verbose {
+                        let _ = writeln!(stderr, "ERROR: stdin read error: {e}");
+                    }
+                    break;
+                }
+            }
+        }
+    });
+
+    if options.headless {
+        run_headless(rx)?;
         return Ok(EX_OK);
     }
 
-    // Prepare a streaming JSON deserializer over the whole buffer.
-    let stream = Deserializer::from_slice(&stdin_buf).into_iter::<KnowImage>();
+    run_ui(rx, debug, verbose)?;
+    Ok(EX_OK)
+}
 
-    // Window + framebuffer will be created on the first valid image.
-    let mut window: Option<Window> = None;
-    let mut fb: Vec<u32> = Vec::new();
-    let mut fb_width: usize = 0;
-    let mut fb_height: usize = 0;
-    let mut saw_any_image = false;
+fn run_ui(rx: Receiver<KnowImage>, debug: bool, verbose: bool) -> Result<(), Box<dyn Error>> {
+    use minifb::{Key, Scale, ScaleMode, Window, WindowOptions};
 
-    for img_result in stream {
-        let image = match img_result {
-            Ok(img) => img,
-            Err(err) => {
-                // Not an image / malformed / different JSON value – skip and continue.
-                eprintln!("asimov-image-viewer: failed to parse Image from JSON: {err}");
-                continue;
-            }
-        };
+    let mut width: usize = 320;
+    let mut height: usize = 240;
+    let mut buffer: Vec<u32> = vec![0; width * height];
 
-        let width = match image.width {
-            Some(w) if w > 0 => w as usize,
-            _ => {
-                eprintln!(
-                    "asimov-image-viewer: image missing or invalid width, skipping frame"
-                );
-                continue;
-            }
-        };
-        let height = match image.height {
-            Some(h) if h > 0 => h as usize,
-            _ => {
-                eprintln!(
-                    "asimov-image-viewer: image missing or invalid height, skipping frame"
-                );
-                continue;
-            }
-        };
+    let mut window = Window::new(
+        "ASIMOV",
+        width,
+        height,
+        WindowOptions {
+            resize: true,
+            scale: Scale::X1,
+            scale_mode: ScaleMode::AspectRatioStretch,
+            topmost: false,
+            borderless: false,
+            transparency: false,
+            ..WindowOptions::default()
+        },
+    )?;
+    window.set_target_fps(60);
 
-        let data = &image.data;
-        let expected_len = width
-            .saturating_mul(height)
-            .saturating_mul(3); // RGB (3 bytes per pixel)
-
-        if data.len() != expected_len {
-            eprintln!(
-                "asimov-image-viewer: image data len={} does not match {}x{} RGB ({expected_len}), skipping frame",
-                data.len(),
-                width,
-                height
-            );
-            continue;
+    while window.is_open() && !window.is_key_down(Key::Escape) {
+        let mut latest: Option<KnowImage> = None;
+        while let Ok(img) = rx.try_recv() {
+            latest = Some(img);
         }
 
-        // (Re)create window + framebuffer if needed or if dimensions changed.
-        let recreate = match &window {
-            None => true,
-            Some(_) if width != fb_width || height != fb_height => true,
-            Some(_) => false,
-        };
-
-        if recreate {
-            let mut win = Window::new(
-                "ASIMOV",
-                width,
-                height,
-                WindowOptions::default(),
-            )
-                .map_err(|e| format!("failed to create window: {e}"))?;
-
-            win.set_target_fps(60);
-
-            window = Some(win);
-            fb_width = width;
-            fb_height = height;
-            fb = vec![0; fb_width * fb_height];
-        }
-
-        // Convert packed RGB bytes -> 0x00RRGGBB pixels for minifb.
-        if fb.len() != fb_width * fb_height {
-            fb.resize(fb_width * fb_height, 0);
-        }
-
-        for (i, px) in data.chunks_exact(3).enumerate() {
-            let r = px[0] as u32;
-            let g = px[1] as u32;
-            let b = px[2] as u32;
-            fb[i] = (r << 16) | (g << 8) | b;
-        }
-
-        if let Some(win) = window.as_mut() {
-            // Update title from id/source if present.
-            if let Some(title_id) = image
-                .id
-                .as_deref()
-                .or_else(|| image.source.as_deref())
-            {
-                let title = format!("{title_id} ({}x{})", fb_width, fb_height);
-                win.set_title(&title);
-            }
-
-            win.update_with_buffer(&fb, fb_width, fb_height)
-                .map_err(|e| format!("failed to update window buffer: {e}"))?;
-
-            saw_any_image = true;
-
-            // ESC or closing the window terminates early.
-            if !win.is_open() || win.is_key_down(Key::Escape) {
-                break;
+        if let Some(img) = latest {
+            if let Err(e) = show_image(&mut window, &mut buffer, &mut width, &mut height, img) {
+                if debug || verbose {
+                    eprintln!("WARN: failed to display image: {e}");
+                }
             }
         } else {
-            // Somehow lost the window; nothing to show.
-            break;
+            window.update_with_buffer(&buffer, width, height)?;
         }
+        std::thread::sleep(Duration::from_millis(1));
     }
 
-    if saw_any_image {
-        // Keep window open until user closes it or presses ESC.
-        if let Some(mut win) = window {
-            while win.is_open() && !win.is_key_down(Key::Escape) {
-                // Just redraw the last frame at ~60 FPS:
-                win.update_with_buffer(&fb, fb_width, fb_height)
-                    .map_err(|e| format!("failed to update window buffer: {e}"))?;
-            }
+    if debug {
+        eprintln!("INFO: viewer exiting");
+    }
+    Ok(())
+}
+
+fn run_headless(rx: Receiver<KnowImage>) -> Result<(), Box<dyn Error>> {
+    let mut frames: usize = 0;
+    let mut buf: Vec<u32> = Vec::new();
+    while let Ok(img) = rx.recv() {
+        let w = img.width.ok_or_else(|| err_msg("missing image.width"))? as usize;
+        let h = img.height.ok_or_else(|| err_msg("missing image.height"))? as usize;
+        let expected = w.checked_mul(h).and_then(|px| px.checked_mul(3)).ok_or_else(|| err_msg("overflow"))?;
+        if img.data.len() != expected {
+            return Err(err_msg("invalid byte length for width*height*3"));
         }
+        if buf.len() != w * h {
+            buf.resize(w * h, 0);
+        }
+        for (i, chunk) in img.data.chunks_exact(3).enumerate() {
+            buf[i] = ((chunk[0] as u32) << 16) | ((chunk[1] as u32) << 8) | (chunk[2] as u32);
+        }
+        frames += 1;
+    }
+    if frames == 0 {
+        return Err(err_msg("no frames received in headless mode"));
+    }
+    Ok(())
+}
+
+fn show_image(
+    window: &mut minifb::Window,
+    buffer: &mut Vec<u32>,
+    width: &mut usize,
+    height: &mut usize,
+    img: KnowImage,
+) -> Result<(), Box<dyn Error>> {
+    let w = img.width.ok_or_else(|| err_msg("missing image.width"))? as usize;
+    let h = img.height.ok_or_else(|| err_msg("missing image.height"))? as usize;
+
+    let data = img.data;
+    let expected = w.checked_mul(h).and_then(|px| px.checked_mul(3)).ok_or_else(|| err_msg("width*height*3 overflow"))?;
+    if data.len() != expected {
+        return Err(err_msg(format!(
+            "byte length {} does not match width*height*3 ({expected})",
+            data.len()
+        )));
     }
 
-    Ok(EX_OK)
+    if *width != w || *height != h || buffer.len() != w * h {
+        *width = w;
+        *height = h;
+        *buffer = vec![0; w * h];
+    }
+
+    for (i, chunk) in data.chunks_exact(3).enumerate() {
+        let r = chunk[0] as u32;
+        let g = chunk[1] as u32;
+        let b = chunk[2] as u32;
+        buffer[i] = (r << 16) | (g << 8) | b;
+    }
+
+    let title = format!(
+        "{} ({}x{})",
+        img.id.unwrap_or_else(|| "ASIMOV".to_string()),
+        w,
+        h
+    );
+    window.set_title(&title);
+    window.update_with_buffer(buffer, *width, *height)?;
+    Ok(())
+}
+
+fn err_msg<M: Into<String>>(m: M) -> Box<dyn Error> {
+    m.into().into()
 }
