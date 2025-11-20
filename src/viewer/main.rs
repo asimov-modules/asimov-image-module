@@ -21,10 +21,6 @@ struct Options {
     /// Copy stdin to stdout (pass-through / tee)
     #[arg(short = 'U', long = "union")]
     union: bool,
-
-    /// TEMP for CI only: run with no window; parse & validate frames and exit
-    #[arg(long = "headless")]
-    headless: bool,
 }
 
 pub fn main() -> Result<SysexitsError, Box<dyn Error>> {
@@ -59,7 +55,6 @@ pub fn main() -> Result<SysexitsError, Box<dyn Error>> {
     let debug = options.flags.debug;
     let verbose = options.flags.verbose != 0;
 
-    // stdin reader -> channel
     thread::spawn(move || {
         let stdin = io::stdin();
         let mut stdout = io::stdout();
@@ -94,11 +89,6 @@ pub fn main() -> Result<SysexitsError, Box<dyn Error>> {
             }
         }
     });
-
-    if options.headless {
-        run_headless(rx)?;
-        return Ok(EX_OK);
-    }
 
     run_ui(rx, debug, verbose)?;
     Ok(EX_OK)
@@ -151,30 +141,6 @@ fn run_ui(rx: Receiver<KnowImage>, debug: bool, verbose: bool) -> Result<(), Box
     Ok(())
 }
 
-fn run_headless(rx: Receiver<KnowImage>) -> Result<(), Box<dyn Error>> {
-    let mut frames: usize = 0;
-    let mut buf: Vec<u32> = Vec::new();
-    while let Ok(img) = rx.recv() {
-        let w = img.width.ok_or_else(|| err_msg("missing image.width"))? as usize;
-        let h = img.height.ok_or_else(|| err_msg("missing image.height"))? as usize;
-        let expected = w.checked_mul(h).and_then(|px| px.checked_mul(3)).ok_or_else(|| err_msg("overflow"))?;
-        if img.data.len() != expected {
-            return Err(err_msg("invalid byte length for width*height*3"));
-        }
-        if buf.len() != w * h {
-            buf.resize(w * h, 0);
-        }
-        for (i, chunk) in img.data.chunks_exact(3).enumerate() {
-            buf[i] = ((chunk[0] as u32) << 16) | ((chunk[1] as u32) << 8) | (chunk[2] as u32);
-        }
-        frames += 1;
-    }
-    if frames == 0 {
-        return Err(err_msg("no frames received in headless mode"));
-    }
-    Ok(())
-}
-
 fn show_image(
     window: &mut minifb::Window,
     buffer: &mut Vec<u32>,
@@ -186,7 +152,10 @@ fn show_image(
     let h = img.height.ok_or_else(|| err_msg("missing image.height"))? as usize;
 
     let data = img.data;
-    let expected = w.checked_mul(h).and_then(|px| px.checked_mul(3)).ok_or_else(|| err_msg("width*height*3 overflow"))?;
+    let expected = w
+        .checked_mul(h)
+        .and_then(|px| px.checked_mul(3))
+        .ok_or_else(|| err_msg("width*height*3 overflow"))?;
     if data.len() != expected {
         return Err(err_msg(format!(
             "byte length {} does not match width*height*3 ({expected})",
@@ -207,13 +176,12 @@ fn show_image(
         buffer[i] = (r << 16) | (g << 8) | b;
     }
 
-    let title = format!(
+    window.set_title(&format!(
         "{} ({}x{})",
         img.id.unwrap_or_else(|| "ASIMOV".to_string()),
         w,
         h
-    );
-    window.set_title(&title);
+    ));
     window.update_with_buffer(buffer, *width, *height)?;
     Ok(())
 }
