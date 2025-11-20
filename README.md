@@ -45,6 +45,35 @@ Read from stdin:
 cat photo.jpg | asimov-image-reader
 ```
 
+Pipe the reader into the viewer (Linux/macOS):
+```bash
+# Show a single image
+asimov-image-reader ./photo.jpg | asimov-image-viewer
+
+# Resize before viewing
+asimov-image-reader ./photo.jpg --size 800x600 | asimov-image-viewer
+```
+
+Pipe on Windows (PowerShell):
+```powershell
+asimov-image-reader .\photo.jpg | asimov-image-viewer
+```
+
+Tee the stream (debug pipelines) while viewing:
+```bash
+asimov-image-reader ./photo.jpg | asimov-image-viewer --union | jq .
+```
+
+View a sequence (any producer that emits one Image JSON per line will work):
+```bash
+# Example: loop multiple files through the reader into the viewer
+for f in imgs/*.jpg; do asimov-image-reader "$f"; done | asimov-image-viewer
+```
+
+> Notes
+> - The viewer auto-updates on each incoming frame and resizes the framebuffer to match the image.
+> - The viewer expects RGB byte data (R, G, B per pixel) packed in data and width/height set.
+
 ## ⚙ Configuration
 
 This module requires no configuration.
@@ -54,6 +83,7 @@ This module requires no configuration.
 ### Installed Binaries
 
 - `asimov-image-reader` — reads and emits image metadata as JSON-LD
+- `asimov-image-viewer` — displays image JSON frames in a window
 
 ### `asimov-image-reader`
 
@@ -66,6 +96,19 @@ Options:
   -v, --verbose     Enable verbose output
   -V, --version     Print version information
   -h, --help        Print help
+```
+
+### `asimov-image-viewer`
+
+```
+Usage: asimov-image-viewer [OPTIONS]
+
+Options:
+-U, --union Copy stdin to stdout (tee)
+--license Show license information
+-v, --verbose Enable verbose output
+-V, --version Print version information
+-h, --help Print help
 ```
 
 ## 👨‍💻 Development
