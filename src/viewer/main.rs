@@ -125,10 +125,9 @@ fn run_ui(rx: Receiver<KnowImage>, debug: bool, verbose: bool) -> Result<(), Box
         }
 
         if let Some(img) = latest {
-            if let Err(e) = show_image(&mut window, &mut buffer, &mut width, &mut height, img)
-                && (debug || verbose)
-            {
-                eprintln!("WARN: failed to display image: {e}");
+            match show_image(&mut window, &mut buffer, &mut width, &mut height, img) {
+                Err(e) if debug || verbose => eprintln!("WARN: failed to display image: {e}"),
+                _ => {},
             }
         } else {
             window.update_with_buffer(&buffer, width, height)?;
