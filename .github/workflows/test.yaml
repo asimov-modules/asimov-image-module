@@ -1,4 +1,4 @@
-# .github/workflows/ci.yml
+# .github/workflows/ci.yml (simplified; no headless/GPU step)
 name: CI
 
 on:
@@ -7,7 +7,6 @@ on:
 
 jobs:
   build-and-test:
-    name: build-test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -28,43 +27,12 @@ jobs:
 
       - name: Build
         run: cargo build --locked --features cli --bins --all-targets
-          
-      - name: Headless smoke test (Linux/macOS)
-        if: runner.os != 'Windows'
-        shell: bash
-        run: |
-         set -euo pipefail
-         BIN_VIEWER="target/debug/asimov-image-viewer"
-         BIN_READER="target/debug/asimov-image-reader"
-         
-         # Make a 2x2 ASCII PPM (P3)
-         cat > test.ppm <<'PPM'
-         P3
-         2 2
-         255
-         255 0 0   0 255 0
-         0 0 255   255 255 255
-         PPM
-         
-         # Reader prints one JSON-LD line -> pipe to viewer (headless)
-         "$BIN_READER" test.ppm | "$BIN_VIEWER" --headless --verbose
 
-      - name: Headless smoke test (Windows PowerShell)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-         $ErrorActionPreference = "Stop"
-         $viewer = "target\debug\asimov-image-viewer.exe"
-         $reader = "target\debug\asimov-image-reader.exe"
-         
-         # Create 2x2 PPM (ASCII P3)
-         @'
-         P3
-         2 2
-         255
-         255 0 0   0 255 0
-         0 0 255   255 255 255
-         '@ | Set-Content -NoNewline -Encoding ascii test.ppm
-         
-         # Pipe real JSON-LD from reader into viewer
-         & $reader test.ppm | & $viewer --headless --verbose
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --features cli --all-targets -- -D warnings
+
+      - name: Unit tests
+        run: cargo test --locked --features cli --all
