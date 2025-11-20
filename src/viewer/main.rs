@@ -125,10 +125,10 @@ fn run_ui(rx: Receiver<KnowImage>, debug: bool, verbose: bool) -> Result<(), Box
         }
 
         if let Some(img) = latest {
-            if let Err(e) = show_image(&mut window, &mut buffer, &mut width, &mut height, img) {
-                if debug || verbose {
-                    eprintln!("WARN: failed to display image: {e}");
-                }
+            if let Err(e) = show_image(&mut window, &mut buffer, &mut width, &mut height, img)
+                && (debug || verbose)
+            {
+                eprintln!("WARN: failed to display image: {e}");
             }
         } else {
             window.update_with_buffer(&buffer, width, height)?;
@@ -149,8 +149,8 @@ fn show_image(
     height: &mut usize,
     img: KnowImage,
 ) -> Result<(), Box<dyn Error>> {
-    let w = img.width.ok_or_else(|| err_msg("missing image.width"))? as usize;
-    let h = img.height.ok_or_else(|| err_msg("missing image.height"))? as usize;
+    let w = img.width.ok_or_else(|| err_msg("missing image.width"))?;
+    let h = img.height.ok_or_else(|| err_msg("missing image.height"))?;
 
     let data = img.data;
     let expected = w
