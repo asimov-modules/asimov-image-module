@@ -72,20 +72,21 @@ pub fn main() -> Result<SysexitsError, Box<dyn Error>> {
                             if tx.send(img).is_err() {
                                 break;
                             }
-                        }
+                        },
                         Err(e) => {
                             if debug || verbose {
-                                let _ = writeln!(stderr, "WARN: failed to parse Image JSON-LD: {e}");
+                                let _ =
+                                    writeln!(stderr, "WARN: failed to parse Image JSON-LD: {e}");
                             }
-                        }
+                        },
                     }
-                }
+                },
                 Err(e) => {
                     if debug || verbose {
                         let _ = writeln!(stderr, "ERROR: stdin read error: {e}");
                     }
                     break;
-                }
+                },
             }
         }
     });
