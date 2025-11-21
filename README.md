@@ -70,6 +70,39 @@ View a sequence (any producer that emits one Image JSON per line will work):
 for f in imgs/*.jpg; do asimov-image-reader "$f"; done | asimov-image-viewer
 ```
 
+Save an image (reader → writer):
+```bash
+asimov-image-reader ./photo.jpg | asimov-image-writer out/photo.png
+```
+
+Resize then save (format inferred from extension):
+```bash
+asimov-image-reader ./photo.jpg --size 800x600 | asimov-image-writer out/photo-800x600.jpg
+```
+
+Save to multiple outputs at once:
+```bash
+asimov-image-reader ./photo.jpg | asimov-image-writer out/photo.png out/photo.jpg out/photo.bmp
+```
+
+Tee JSON-LD downstream while saving:
+```bash
+asimov-image-reader ./photo.jpg \
+| asimov-image-writer --union out/photo.png \
+| asimov-image-viewer
+```
+
+Read from stdin and save:
+```bash
+cat ./photo.jpg | asimov-image-reader | asimov-image-writer out/photo.png
+```
+
+Windows (PowerShell):
+```powershell
+asimov-image-reader .\photo.jpg | asimov-image-writer .\out\photo.png
+asimov-image-reader -s 640x360 .\photo.jpg | asimov-image-writer .\out\photo-640x360.jpg
+```
+
 > Notes
 > - The viewer auto-updates on each incoming frame and resizes the framebuffer to match the image.
 > - The viewer expects RGB byte data (R, G, B per pixel) packed in data and width/height set.
@@ -82,21 +115,9 @@ This module requires no configuration.
 
 ### Installed Binaries
 
-- `asimov-image-reader` — reads and emits image metadata as JSON-LD
 - `asimov-image-viewer` — displays image JSON frames in a window
-
-### `asimov-image-reader`
-
-```
-Usage: asimov-image-reader [OPTIONS] [URL]
-
-Options:
-  -s, --size <WxH>  Resize to specific width and height (e.g., 1920x1080)
-      --license     Show license information
-  -v, --verbose     Enable verbose output
-  -V, --version     Print version information
-  -h, --help        Print help
-```
+- `asimov-image-reader` — reads and emits image metadata as JSON-LD
+- `asimov-image-writer` — consumes JSON-LD images and writes files
 
 ### `asimov-image-viewer`
 
@@ -104,11 +125,41 @@ Options:
 Usage: asimov-image-viewer [OPTIONS]
 
 Options:
--U, --union Copy stdin to stdout (tee)
---license Show license information
--v, --verbose Enable verbose output
--V, --version Print version information
--h, --help Print help
+    -U, --union Copy stdin to stdout (tee)
+    --license Show license information
+    -v, --verbose Enable verbose output
+    -V, --version Print version information
+    -h, --help Print help
+```
+
+### `asimov-image-reader`
+
+```
+Usage: asimov-image-reader [OPTIONS] [URL]
+
+Options:
+    -s, --size <WxH>  Resize to specific width and height (e.g., 1920x1080)
+      --license     Show license information
+    -v, --verbose     Enable verbose output
+    -V, --version     Print version information
+    -h, --help        Print help
+```
+
+### `asimov-image-writer`
+
+```
+Usage: asimov-image-writer [OPTIONS] [FILES]...
+
+Arguments:
+    [FILES]...  Output file(s). Each incoming image is saved to all of these paths. Format is inferred from the file extension (e.g., .png, .jpg, .bmp)
+
+Options:
+    -d, --debug       Enable debugging output
+      --license     Show license information
+    -v, --verbose...  Enable verbose output (may be repeated for more verbosity)
+    -V, --version     Print version information
+    -U, --union       Copy stdin to stdout (pass-through / tee)
+    -h, --help        Print help
 ```
 
 ## 👨‍💻 Development

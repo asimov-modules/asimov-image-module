@@ -50,11 +50,16 @@ strip = true
 lto = "thin"
 
 [[bin]]
+name = "asimov-image-viewer"
+path = "src/viewer/main.rs"
+required-features = ["cli"]
+
+[[bin]]
 name = "asimov-image-reader"
 path = "src/reader/main.rs"
 required-features = ["cli"]
 
 [[bin]]
-name = "asimov-image-viewer"
-path = "src/viewer/main.rs"
+name = "asimov-image-writer"
+path = "src/writer/main.rs"
 required-features = ["cli"]
