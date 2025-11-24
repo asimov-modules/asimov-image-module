@@ -1,8 +1,10 @@
+// src/writer/main.rs
 // This is free and unencumbered software released into the public domain.
 
 #[cfg(not(feature = "std"))]
-compile_error!("asimov-image-viewer requires the 'std' feature");
+compile_error!("asimov-image-writer requires the 'std' feature");
 
+use asimov_image_module::core::err_msg;
 use asimov_module::SysexitsError::{self, *};
 use clap::Parser;
 use clientele::StandardOptions;
@@ -52,7 +54,8 @@ pub fn main() -> Result<SysexitsError, Box<dyn Error>> {
 
     // Configure logging & tracing:
     #[cfg(feature = "tracing")]
-    asimov_module::init_tracing_subscriber(&options.flags).expect("failed to initialize logging");
+    asimov_module::init_tracing_subscriber(&options.flags)
+        .expect("failed to initialize logging");
 
     run_writer(options)?;
     Ok(EX_OK)
@@ -86,7 +89,10 @@ fn run_writer(opts: Options) -> Result<(), Box<dyn Error>> {
                     Ok(img) => img,
                     Err(e) => {
                         if debug || verbose {
-                            let _ = writeln!(stderr, "WARN: failed to parse Image JSON-LD: {e}");
+                            let _ = writeln!(
+                                stderr,
+                                "WARN: failed to parse Image JSON-LD: {e}"
+                            );
                         }
                         continue;
                     },
@@ -149,8 +155,4 @@ fn save_image_to_all(img: &KnowImage, outputs: &[PathBuf]) -> Result<(), Box<dyn
 
 fn display_path(p: &Path) -> String {
     p.to_string_lossy().into_owned()
-}
-
-fn err_msg<M: Into<String>>(m: M) -> Box<dyn Error> {
-    m.into().into()
 }

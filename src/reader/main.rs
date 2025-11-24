@@ -1,3 +1,8 @@
+// This is free and unencumbered software released into the public domain.
+
+#[cfg(not(feature = "std"))]
+compile_error!("asimov-image-reader requires the 'std' feature");
+
 use asimov_module::SysexitsError::{self, *};
 use clap::Parser;
 use clientele::StandardOptions;
@@ -46,41 +51,50 @@ pub fn main() -> Result<SysexitsError, Box<dyn Error>> {
 
     // Configure logging & tracing:
     #[cfg(feature = "tracing")]
-    asimov_module::init_tracing_subscriber(&options.flags).expect("failed to initialize logging");
+    asimov_module::init_tracing_subscriber(&options.flags)
+        .expect("failed to initialize logging");
 
-    let (image_data, abs_path) = read_input_bytes(options.url)?;
+    let jsonld = read_image_to_jsonld(options.url, options.size)?;
+    println!("{jsonld}");
+
+    Ok(EX_OK)
+}
+
+/// Core for this CLI: read image from path/stdin + optional resize → JSON-LD string.
+fn read_image_to_jsonld(
+    url: Option<String>,
+    size: Option<(u32, u32)>,
+) -> Result<String, Box<dyn Error>> {
+    let (image_data, abs_path) = read_input_bytes(url)?;
 
     let mut img = image::load_from_memory(&image_data)?;
-    let (src_width, src_height) = img.dimensions();
+    let (src_w, src_h) = img.dimensions();
 
-    // Resize if target dimensions specified and differ from source
-    if let Some((target_width, target_height)) = options.size {
-        if target_width != src_width || target_height != src_height {
+    if let Some((target_w, target_h)) = size {
+        if target_w != src_w || target_h != src_h {
             img = img.resize_exact(
-                target_width,
-                target_height,
+                target_w,
+                target_h,
                 image::imageops::FilterType::Lanczos3,
             );
         }
     }
 
     let rgb_img = img.to_rgb8();
-    let (width, height) = rgb_img.dimensions();
+    let (w, h) = rgb_img.dimensions();
     let raw_data = rgb_img.into_raw();
 
-    let file_url = format!("file:{}", abs_path);
+    let file_url = format!("file:{abs_path}");
     let image = know::classes::Image {
         id: Some(file_url.clone()),
-        width: Some(width as _),
-        height: Some(height as _),
+        width: Some(w as _),
+        height: Some(h as _),
         data: raw_data,
         source: Some(file_url),
     };
 
     let jsonld = image.to_jsonld()?;
-    println!("{}", jsonld.to_string());
-
-    Ok(EX_OK)
+    Ok(jsonld.to_string())
 }
 
 /// Read input from a file path (optionally prefixed by file:/file://) or from stdin.

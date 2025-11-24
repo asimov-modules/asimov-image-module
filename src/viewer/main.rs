@@ -3,6 +3,7 @@
 #[cfg(not(feature = "std"))]
 compile_error!("asimov-image-viewer requires the 'std' feature");
 
+use asimov_image_module::core::err_msg;
 use asimov_module::SysexitsError::{self, *};
 use clap::Parser;
 use clientele::StandardOptions;
@@ -47,7 +48,8 @@ pub fn main() -> Result<SysexitsError, Box<dyn Error>> {
 
     // Configure logging & tracing:
     #[cfg(feature = "tracing")]
-    asimov_module::init_tracing_subscriber(&options.flags).expect("failed to initialize logging");
+    asimov_module::init_tracing_subscriber(&options.flags)
+        .expect("failed to initialize logging");
 
     let (tx, rx) = mpsc::channel::<KnowImage>();
 
@@ -55,6 +57,7 @@ pub fn main() -> Result<SysexitsError, Box<dyn Error>> {
     let debug = options.flags.debug;
     let verbose = options.flags.verbose != 0;
 
+    // Reader thread: stdin -> JSON lines -> KnowImage -> channel
     thread::spawn(move || {
         let stdin = io::stdin();
         let mut stdout = io::stdout();
@@ -75,8 +78,10 @@ pub fn main() -> Result<SysexitsError, Box<dyn Error>> {
                         },
                         Err(e) => {
                             if debug || verbose {
-                                let _ =
-                                    writeln!(stderr, "WARN: failed to parse Image JSON-LD: {e}");
+                                let _ = writeln!(
+                                    stderr,
+                                    "WARN: failed to parse Image JSON-LD: {e}"
+                                );
                             }
                         },
                     }
@@ -92,6 +97,9 @@ pub fn main() -> Result<SysexitsError, Box<dyn Error>> {
     });
 
     run_ui(rx, debug, verbose)?;
+    if debug {
+        eprintln!("INFO: viewer exiting");
+    }
     Ok(EX_OK)
 }
 
@@ -135,9 +143,6 @@ fn run_ui(rx: Receiver<KnowImage>, debug: bool, verbose: bool) -> Result<(), Box
         std::thread::sleep(Duration::from_millis(1));
     }
 
-    if debug {
-        eprintln!("INFO: viewer exiting");
-    }
     Ok(())
 }
 
@@ -184,8 +189,4 @@ fn show_image(
     ));
     window.update_with_buffer(buffer, *width, *height)?;
     Ok(())
-}
-
-fn err_msg<M: Into<String>>(m: M) -> Box<dyn Error> {
-    m.into().into()
 }
