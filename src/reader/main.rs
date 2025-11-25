@@ -3,15 +3,17 @@
 #[cfg(not(feature = "std"))]
 compile_error!("asimov-image-reader requires the 'std' feature");
 
+use asimov_image_module::core::{Error, Result as CoreResult, handle_error};
 use asimov_module::SysexitsError::{self, *};
 use clap::Parser;
 use clientele::StandardOptions;
 use image::GenericImageView;
 use know::traits::ToJsonLd;
-use std::error::Error;
+use std::error::Error as StdError;
 use std::io::Read;
 use std::path::PathBuf;
 
+/// asimov-image-reader
 #[derive(Debug, Parser)]
 struct Options {
     #[clap(flatten)]
@@ -27,7 +29,7 @@ struct Options {
     size: Option<(u32, u32)>,
 }
 
-pub fn main() -> Result<SysexitsError, Box<dyn Error>> {
+pub fn main() -> Result<SysexitsError, Box<dyn StdError>> {
     // Load environment variables from `.env`:
     asimov_module::dotenv().ok();
 
@@ -51,32 +53,57 @@ pub fn main() -> Result<SysexitsError, Box<dyn Error>> {
 
     // Configure logging & tracing:
     #[cfg(feature = "tracing")]
-    asimov_module::init_tracing_subscriber(&options.flags)
-        .expect("failed to initialize logging");
+    asimov_module::init_tracing_subscriber(&options.flags).expect("failed to initialize logging");
 
-    let jsonld = read_image_to_jsonld(options.url, options.size)?;
-    println!("{jsonld}");
+    let exit_code = match run_reader(&options) {
+        Ok(()) => EX_OK,
+        Err(err) => handle_error(&err, &options.flags),
+    };
 
-    Ok(EX_OK)
+    Ok(exit_code)
 }
 
-/// Core for this CLI: read image from path/stdin + optional resize → JSON-LD string.
-fn read_image_to_jsonld(
-    url: Option<String>,
-    size: Option<(u32, u32)>,
-) -> Result<String, Box<dyn Error>> {
-    let (image_data, abs_path) = read_input_bytes(url)?;
+fn run_reader(opts: &Options) -> CoreResult<()> {
+    #[cfg(feature = "tracing")]
+    asimov_module::tracing::info!(
+        target: "asimov_image_module::reader",
+        url = ?opts.url,
+        size = ?opts.size,
+        "starting reader"
+    );
+
+    let (image_data, abs_path) = read_input_bytes(&opts.url)?;
+
+    #[cfg(feature = "tracing")]
+    asimov_module::tracing::debug!(
+        target: "asimov_image_module::reader",
+        path = %abs_path,
+        bytes = image_data.len(),
+        "read input image bytes"
+    );
 
     let mut img = image::load_from_memory(&image_data)?;
     let (src_w, src_h) = img.dimensions();
 
-    if let Some((target_w, target_h)) = size {
+    #[cfg(feature = "tracing")]
+    asimov_module::tracing::debug!(
+        target: "asimov_image_module::reader",
+        width = src_w,
+        height = src_h,
+        "decoded image"
+    );
+
+    if let Some((target_w, target_h)) = opts.size {
         if target_w != src_w || target_h != src_h {
-            img = img.resize_exact(
-                target_w,
-                target_h,
-                image::imageops::FilterType::Lanczos3,
+            #[cfg(feature = "tracing")]
+            asimov_module::tracing::debug!(
+                target: "asimov_image_module::reader",
+                target_width = target_w,
+                target_height = target_h,
+                "resizing image"
             );
+
+            img = img.resize_exact(target_w, target_h, image::imageops::FilterType::Lanczos3);
         }
     }
 
@@ -93,29 +120,55 @@ fn read_image_to_jsonld(
         source: Some(file_url),
     };
 
-    let jsonld = image.to_jsonld()?;
-    Ok(jsonld.to_string())
+    let jsonld = image
+        .to_jsonld()
+        .map_err(|e| Error::JsonLd(e.to_string()))?;
+
+    println!("{jsonld}");
+
+    #[cfg(feature = "tracing")]
+    asimov_module::tracing::info!(
+        target: "asimov_image_module::reader",
+        width = w,
+        height = h,
+        "finished reader"
+    );
+
+    Ok(())
 }
 
 /// Read input from a file path (optionally prefixed by file:/file://) or from stdin.
 /// Returns (bytes, canonical_file_url).
-fn read_input_bytes(url: Option<String>) -> Result<(Vec<u8>, String), Box<dyn Error>> {
-    if let Some(url) = &url {
+fn read_input_bytes(url: &Option<String>) -> CoreResult<(Vec<u8>, String)> {
+    if let Some(url) = url {
         let input_path = {
             let p = url;
             let p = p.strip_prefix("file://").unwrap_or(p);
             let p = p.strip_prefix("file:").unwrap_or(p);
             p
         };
+
         let canonical = PathBuf::from(input_path)
-            .canonicalize()?
-            .to_string_lossy()
-            .to_string();
-        let data = std::fs::read(input_path)?;
-        Ok((data, canonical))
+            .canonicalize()
+            .map_err(|e| Error::Io {
+                context: "resolving input path",
+                source: e,
+            })?;
+
+        let data = std::fs::read(input_path).map_err(|e| Error::Io {
+            context: "reading input file",
+            source: e,
+        })?;
+
+        Ok((data, canonical.to_string_lossy().to_string()))
     } else {
         let mut data = Vec::new();
-        std::io::stdin().read_to_end(&mut data)?;
+        std::io::stdin()
+            .read_to_end(&mut data)
+            .map_err(|e| Error::Io {
+                context: "reading from stdin",
+                source: e,
+            })?;
         Ok((data, "[stdin]".to_string()))
     }
 }

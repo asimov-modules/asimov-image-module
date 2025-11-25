@@ -1,21 +1,22 @@
-// src/writer/main.rs
 // This is free and unencumbered software released into the public domain.
 
 #[cfg(not(feature = "std"))]
 compile_error!("asimov-image-writer requires the 'std' feature");
 
-use asimov_image_module::core::err_msg;
+use asimov_image_module::core::{
+    Error, Result as CoreResult, handle_error, info_user, warn_user_with_error,
+};
 use asimov_module::SysexitsError::{self, *};
 use clap::Parser;
 use clientele::StandardOptions;
 use know::classes::Image as KnowImage;
-use std::error::Error;
+use std::error::Error as StdError;
 use std::fs;
 use std::io::{self, BufRead, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+/// asimov-image-writer
 #[derive(Debug, Parser)]
-#[command(arg_required_else_help = true)]
 struct Options {
     #[clap(flatten)]
     flags: StandardOptions,
@@ -30,7 +31,7 @@ struct Options {
     files: Vec<PathBuf>,
 }
 
-pub fn main() -> Result<SysexitsError, Box<dyn Error>> {
+pub fn main() -> Result<SysexitsError, Box<dyn StdError>> {
     // Load environment variables from `.env`:
     asimov_module::dotenv().ok();
 
@@ -54,27 +55,32 @@ pub fn main() -> Result<SysexitsError, Box<dyn Error>> {
 
     // Configure logging & tracing:
     #[cfg(feature = "tracing")]
-    asimov_module::init_tracing_subscriber(&options.flags)
-        .expect("failed to initialize logging");
+    asimov_module::init_tracing_subscriber(&options.flags).expect("failed to initialize logging");
 
-    run_writer(options)?;
-    Ok(EX_OK)
+    let exit_code = match run_writer(&options) {
+        Ok(()) => EX_OK,
+        Err(err) => handle_error(&err, &options.flags),
+    };
+
+    Ok(exit_code)
 }
 
-fn run_writer(opts: Options) -> Result<(), Box<dyn Error>> {
+fn run_writer(opts: &Options) -> CoreResult<()> {
     let stdin = io::stdin();
     let mut stdout = io::stdout();
-    let mut stderr = io::stderr();
-
+    let flags = &opts.flags;
     let union = opts.union;
-    let debug = opts.flags.debug;
-    let verbose = opts.flags.verbose != 0;
 
-    if opts.files.is_empty() && (debug || verbose) {
-        let _ = writeln!(
-            stderr,
-            "INFO: no output FILES provided; images will not be saved"
-        );
+    #[cfg(feature = "tracing")]
+    asimov_module::tracing::info!(
+        target: "asimov_image_module::writer",
+        union = union,
+        outputs = ?opts.files,
+        "starting writer"
+    );
+
+    if opts.files.is_empty() {
+        info_user(flags, "no output FILES provided; images will not be saved");
     }
 
     for line_res in stdin.lock().lines() {
@@ -88,71 +94,72 @@ fn run_writer(opts: Options) -> Result<(), Box<dyn Error>> {
                 let parsed: KnowImage = match serde_json::from_str(&line) {
                     Ok(img) => img,
                     Err(e) => {
-                        if debug || verbose {
-                            let _ = writeln!(
-                                stderr,
-                                "WARN: failed to parse Image JSON-LD: {e}"
-                            );
-                        }
+                        warn_user_with_error(flags, "failed to parse Image JSON-LD", &e);
                         continue;
                     },
                 };
 
                 if let Err(e) = save_image_to_all(&parsed, &opts.files) {
-                    let _ = writeln!(stderr, "WARN: failed to save image: {e}");
+                    warn_user_with_error(flags, "failed to save image", &e);
                 }
             },
             Err(e) => {
-                if debug || verbose {
-                    let _ = writeln!(stderr, "ERROR: stdin read error: {e}");
-                }
+                warn_user_with_error(flags, "stdin read error", &e);
                 break;
             },
         }
     }
 
-    if debug {
-        let _ = writeln!(stderr, "INFO: writer exiting");
-    }
+    #[cfg(feature = "tracing")]
+    asimov_module::tracing::info!(
+        target: "asimov_image_module::writer",
+        "writer exiting"
+    );
+
     Ok(())
 }
 
-fn save_image_to_all(img: &KnowImage, outputs: &[PathBuf]) -> Result<(), Box<dyn Error>> {
-    let w = img.width.ok_or_else(|| err_msg("missing image.width"))? as usize;
-    let h = img.height.ok_or_else(|| err_msg("missing image.height"))? as usize;
+fn save_image_to_all(img: &KnowImage, outputs: &[PathBuf]) -> CoreResult<()> {
+    let w = img
+        .width
+        .ok_or_else(|| Error::InvalidDimensions("missing image.width".into()))?
+        as usize;
+    let h = img
+        .height
+        .ok_or_else(|| Error::InvalidDimensions("missing image.height".into()))?
+        as usize;
 
     let expected = w
         .checked_mul(h)
         .and_then(|px| px.checked_mul(3))
-        .ok_or_else(|| err_msg("width*height*3 overflow"))?;
+        .ok_or_else(|| Error::InvalidBuffer("width*height*3 overflow".into()))?;
 
     if img.data.len() != expected {
-        return Err(err_msg(format!(
+        return Err(Error::InvalidBuffer(format!(
             "byte length {} does not match width*height*3 ({expected})",
             img.data.len()
         )));
     }
 
     let rgb_img = image::RgbImage::from_raw(w as u32, h as u32, img.data.clone())
-        .ok_or_else(|| err_msg("failed to construct RgbImage from raw data"))?;
+        .ok_or_else(|| Error::InvalidBuffer("failed to construct RgbImage from raw data".into()))?;
 
     let dyn_img = image::DynamicImage::ImageRgb8(rgb_img);
 
     for path in outputs {
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
-                fs::create_dir_all(parent)?;
+                fs::create_dir_all(parent).map_err(|e| Error::Io {
+                    context: "creating parent directory",
+                    source: e,
+                })?;
             }
         }
 
         dyn_img
             .save(path)
-            .map_err(|e| err_msg(format!("saving to '{}' failed: {e}", display_path(path))))?;
+            .map_err(|e| Error::Other(format!("saving to '{}' failed: {e}", path.display())))?;
     }
 
     Ok(())
-}
-
-fn display_path(p: &Path) -> String {
-    p.to_string_lossy().into_owned()
 }
